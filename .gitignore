@@ -1,3 +1,7 @@
 backups/
 .env
 .env.save
+backups/
+.env
+.env.save
+backup_*.tgz

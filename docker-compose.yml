@@ -1,12 +1,12 @@
 services:
   web:
     build: .
-    env_file: .env
+    env_file: ./.env
     working_dir: /app/chatbot_project/backend
     command: >
       sh -c 'python manage.py migrate --noinput &&
-            python manage.py collectstatic --noinput &&
-            exec gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile - --log-level info'
+             python manage.py collectstatic --noinput &&
+             exec gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile - --log-level info'
     volumes:
       - ./:/app
       - staticfiles:/app/chatbot_project/backend/staticfiles
@@ -20,14 +20,14 @@ services:
 
   bot:
     build: .
-    env_file: .env
+    env_file: ./.env
     working_dir: /app/chatbot_project
     command: python -u bot/bot.py
     depends_on:
       - web
     restart: unless-stopped
     environment:
-      DJANGO_API_URL: "http://nginx/api"
+      DJANGO_API_URL: "http://web:8000/api"   # внутрішній URL (без TLS)
 
   db:
     image: pgvector/pgvector:pg15
