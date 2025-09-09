@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Virtual env
+.env
+.venv/
+venv/
+
+# Django
+staticfiles/
+media/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Node (якщо з'явиться фронт)
+node_modules/

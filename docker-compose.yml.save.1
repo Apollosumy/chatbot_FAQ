@@ -1,0 +1,66 @@
+services:
+  web:
+    build: .
+    env_file: .env
+    working_dir: /app/chatbot_project/backend
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             gunicorn backend.wsgi:application -b 0.0.0.0:8000 --workers 3 --timeout 120"
+    volumes:
+      - ./static:/app/static
+      - ./media:/app/media
+    expose:
+      - "8000"
+    depends_on:
+      - redis
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${chatbot_data}
+      POSTGRES_USER: ${postgres}
+      POSTGRES_PASSWORD: ${}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+    restart: unless-stopped
+
+  bot:
+    build: .
+    env_file: .env
+    working_dir: /app/chatbot_project
+    command: python -u bot/bot.py
+    depends_on:
+      - web
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.25
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./static:/var/www/static:ro
+      - ./media:/var/www/media:ro
+      - certbot-webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command: -c "sleep infinity"
+
+volumes:
+  certbot-webroot:
+  letsencrypt:
