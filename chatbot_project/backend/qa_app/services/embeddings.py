@@ -1,6 +1,7 @@
 import os
 from typing import List
 from openai import OpenAI
+import asyncio
 
 # ЧИТАЄМО ЛИШЕ ЦІ ДВІ ЗМІННІ
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
@@ -25,3 +26,10 @@ def embed_text_sync(text: str) -> List[float]:
     elif len(vec) < EMBED_DIM:
         vec = vec + [0.0] * (EMBED_DIM - len(vec))
     return vec
+
+async def embed_text_async(texts):
+    """
+    Async-обгортка над embed_text_sync, щоб не ламати існуючі імпорти.
+    Виконуємо синхронний розрахунок у thread-пулі.
+    """
+    return await asyncio.to_thread(embed_text_sync, texts)
