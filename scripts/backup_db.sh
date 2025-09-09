@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+# Комітимо змінуset -Eeuo pipefail
+git add scripts/backup_db.sh PROJECT_DIR="/srv/app/chat_bot" BACKUP_DIR="$PROJECT_DIR/backups/db" DOCKER="$(command -v docker)" git commit -m "fix: add ggignore comment to avoid false positive in GitGuardian"
 
-PROJECT_DIR="/srv/app/chat_bot"
-BACKUP_DIR="$PROJECT_DIR/backups/db"
-DOCKER="$(command -v docker)"
-
-# Місця, де може бути .env
-CANDIDATES=(
+# Шлемо в гілку, де створений PR
+git push origin prep/move-to-chatbot_FAQ# Місця, де може бути .env CANDIDATES=(
   "$PROJECT_DIR/.env"
   "$PROJECT_DIR/chatbot_project/.env"
 )
