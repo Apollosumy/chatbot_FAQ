@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Комітимо змінуset -Eeuo pipefail
-git add scripts/backup_db.sh PROJECT_DIR="/srv/app/chat_bot" BACKUP_DIR="$PROJECT_DIR/backups/db" DOCKER="$(command -v docker)" git commit -m "fix: add ggignore comment to avoid false positive in GitGuardian"
+set -Eeuo pipefail
 
-# Шлемо в гілку, де створений PR
-git push origin prep/move-to-chatbot_FAQ# Місця, де може бути .env CANDIDATES=(
+PROJECT_DIR="/srv/app/chat_bot"
+BACKUP_DIR="$PROJECT_DIR/backups/db"
+DOCKER="$(command -v docker)"
+
+# Місця, де може бути .env
+CANDIDATES=(
   "$PROJECT_DIR/.env"
   "$PROJECT_DIR/chatbot_project/.env"
 )
@@ -58,5 +61,6 @@ echo "[INFO] Старт бекапу ${POSTGRES_NAME} -> $OUT"
 gzip -t "$OUT"
 echo "[OK] Бекап готовий: $OUT"
 
+# Прибирання старших за 10 днів
 find "$BACKUP_DIR" -type f -name '*.dump.gz' -mtime +10 -print -delete \
   | sed 's/^/[GC] /' || true

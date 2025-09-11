@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from pgvector.django import VectorField
 from qa_app.services.embeddings import embed_text_sync
@@ -27,6 +27,7 @@ class QAEntry(models.Model):
     category = models.ForeignKey(
         Category, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Категорія"
     )
+    # Залишаємо старе поле embedding для зворотної сумісності (можете прибрати пізніше)
     embedding = VectorField(
         blank=True, null=True,
         dimensions=getattr(settings, "EMBED_DIMENSIONS", 1536)
@@ -39,22 +40,60 @@ class QAEntry(models.Model):
     def __str__(self):
         return self.question
 
-    def get_all_variants(self):
-        variants = [self.question]
+    # ---- variants helpers
+    def get_variants_list(self) -> list[str]:
+        out = [self.question.strip()]
         if self.synonyms:
-            variants.extend([syn.strip() for syn in self.synonyms.split(";") if syn.strip()])
-        return variants
+            out += [s.strip() for s in self.synonyms.split(";") if s.strip()]
+        # унікалізація, зберігаємо порядок
+        seen = set()
+        uniq = []
+        for t in out:
+            if t not in seen:
+                uniq.append(t)
+                seen.add(t)
+        return uniq
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         """
-        Вираховуємо embedding у sync-режимі (save() — синхронний API Django).
-        Якщо текстів немає — embedding не чіпаємо.
+        1) Зберігаємо сам QAEntry.
+        2) Перегенеровуємо варіанти (питання + синоніми) у таблиці QAVariant з ОКРЕМИМИ embedding.
+        3) Поле embedding у QAEntry оновлюємо embedding-ом головного питання (можна прибрати згодом).
         """
-        all_variants = self.get_all_variants()
-        if all_variants:
-            text = " ".join(all_variants)
-            self.embedding = embed_text_sync(text)
         super().save(*args, **kwargs)
+
+        # 3. QAEntry.embedding = embedding головного питання (для сумісності)
+        q = (self.question or "").strip()
+        self.embedding = embed_text_sync(q) if q else None
+        super().save(update_fields=["embedding"])
+
+        # 2. повністю перебудовуємо QAVariant
+        QAVariant.objects.filter(entry=self).delete()
+        for text in self.get_variants_list():
+            vec = embed_text_sync(text)
+            QAVariant.objects.create(entry=self, text=text, embedding=vec)
+
+
+class QAVariant(models.Model):
+    entry = models.ForeignKey(
+        QAEntry,
+        on_delete=models.CASCADE,
+        related_name="variants",
+        db_index=True,
+    )
+    text = models.TextField("Варіант", db_index=True)
+    embedding = VectorField(
+        blank=True, null=True,
+        dimensions=getattr(settings, "EMBED_DIMENSIONS", 1536)
+    )
+
+    class Meta:
+        verbose_name = "Варіант формулювання"
+        verbose_name_plural = "Варіанти формулювань"
+
+    def __str__(self):
+        return f"[{self.entry_id}] {self.text}"
 
 
 class UnansweredQuestion(models.Model):

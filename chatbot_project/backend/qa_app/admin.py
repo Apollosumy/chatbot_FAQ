@@ -3,14 +3,17 @@ from __future__ import annotations
 from django.contrib import admin
 from django import forms
 
-from .models import QAEntry, UnansweredQuestion, Category, QuestionLog, AllowedTelegramUser
+from .models import QAEntry, UnansweredQuestion, Category, QuestionLog, AllowedTelegramUser, QAVariant
 
 # --------- QAEntry
 @admin.register(QAEntry)
 class QAEntryAdmin(admin.ModelAdmin):
-    list_display = ('question', 'category')
-    list_filter = ('category',)
-    search_fields = ('question', 'answer')
+    list_display = ("question",)
+    search_fields = ("question", "synonyms", "answer")
+
+    def delete_queryset(self, request, queryset):
+        QAVariant.objects.filter(entry__in=queryset).delete()
+        super().delete_queryset(request, queryset)
 
 
 # --------- Category
