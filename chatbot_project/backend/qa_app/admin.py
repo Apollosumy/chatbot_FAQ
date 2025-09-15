@@ -5,11 +5,15 @@ from django import forms
 
 from .models import QAEntry, UnansweredQuestion, Category, QuestionLog, AllowedTelegramUser, QAVariant
 
+
 # --------- QAEntry
 @admin.register(QAEntry)
 class QAEntryAdmin(admin.ModelAdmin):
-    list_display = ("question",)
+    list_display = ("question", "category")          # показуємо категорію в списку
+    list_filter = ("category",)                      # <-- фільтр за категорією
     search_fields = ("question", "synonyms", "answer")
+    ordering = ("question",)
+    list_per_page = 25
 
     def delete_queryset(self, request, queryset):
         QAVariant.objects.filter(entry__in=queryset).delete()
@@ -53,6 +57,7 @@ class UnansweredQuestionAdmin(admin.ModelAdmin):
     form = UnansweredQuestionAdminForm
     list_display = ('question', 'asked_at', 'proposed_answer')
     search_fields = ('question',)
+    date_hierarchy = "asked_at"                      # зручно навігуватись по датах
 
     def save_model(self, request, obj, form, change):
         if obj.question and obj.proposed_answer:
