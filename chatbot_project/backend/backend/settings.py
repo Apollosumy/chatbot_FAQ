@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'qa_app',
     'instructions_app',
     'feedback_app',
+    'audittrail',
 ]
 
 # --- Middleware ---

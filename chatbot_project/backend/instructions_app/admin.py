@@ -1,21 +1,23 @@
 from django.contrib import admin
 from .models import InstructionCategory, InstructionSubcategory, Instruction, Tag
+from audittrail.admin_mixins import AuditedModelAdmin
+
 
 @admin.register(InstructionCategory)
-class InstructionCategoryAdmin(admin.ModelAdmin):
+class InstructionCategoryAdmin(AuditedModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
 
 
 @admin.register(InstructionSubcategory)
-class InstructionSubcategoryAdmin(admin.ModelAdmin):
+class InstructionSubcategoryAdmin(AuditedModelAdmin):
     list_display = ('name', 'category')
     list_filter = ('category',)
     search_fields = ('name',)
 
 
 @admin.register(Instruction)
-class InstructionAdmin(admin.ModelAdmin):
+class InstructionAdmin(AuditedModelAdmin):
     list_display = ('title', 'subcategory')
     list_filter = ('subcategory',)
     search_fields = ('title', 'content')
@@ -23,6 +25,6 @@ class InstructionAdmin(admin.ModelAdmin):
 
 
 @admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
+class TagAdmin(AuditedModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)

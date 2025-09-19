@@ -1,6 +1,8 @@
 services:
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file: ./.env
     working_dir: /app/chatbot_project/backend
     command: >
@@ -19,7 +21,9 @@ services:
     restart: unless-stopped
 
   bot:
-    build: .
+    build:
+      context: .              # ⬅️ тепер бачить кореневий requirements.txt
+      dockerfile: Dockerfile  # ⬅️ використовує той самий Dockerfile
     env_file: ./.env
     working_dir: /app/chatbot_project
     command: python -u bot/bot.py
@@ -27,7 +31,7 @@ services:
       - web
     restart: unless-stopped
     environment:
-      DJANGO_API_URL: "http://web:8000/api"   # внутрішній URL (без TLS)
+      DJANGO_API_URL: "http://web:8000/api"
 
   db:
     image: pgvector/pgvector:pg15
