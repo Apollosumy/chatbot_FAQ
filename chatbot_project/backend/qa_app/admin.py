@@ -1,19 +1,21 @@
 from __future__ import annotations
-
 from django.contrib import admin
 from django import forms
 
 from .models import QAEntry, UnansweredQuestion, Category, QuestionLog, AllowedTelegramUser, QAVariant
+from audittrail.admin_mixins import AuditedModelAdmin
 
 
 # --------- QAEntry
 @admin.register(QAEntry)
-class QAEntryAdmin(admin.ModelAdmin):
-    list_display = ("question", "category")          # показуємо категорію в списку
-    list_filter = ("category",)                      # <-- фільтр за категорією
+class QAEntryAdmin(AuditedModelAdmin):
+    list_display = ("question", "category")
+    list_filter = ("category",)
     search_fields = ("question", "synonyms", "answer")
     ordering = ("question",)
     list_per_page = 25
+
+    audit_exclude_fields = ("id", "embedding")
 
     def delete_queryset(self, request, queryset):
         QAVariant.objects.filter(entry__in=queryset).delete()
@@ -22,16 +24,20 @@ class QAEntryAdmin(admin.ModelAdmin):
 
 # --------- Category
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
+class CategoryAdmin(AuditedModelAdmin):
     search_fields = ('name',)
 
 
 # --------- QuestionLog
 @admin.register(QuestionLog)
 class QuestionLogAdmin(admin.ModelAdmin):
-    list_display = ('question', 'answer_found', 'similarity', 'timestamp')
-    list_filter = ('answer_found', 'timestamp')
-    search_fields = ('question',)
+    list_display = ('question', 'answer_found', 'similarity', 'timestamp', 'asked_by')
+    list_filter = ('answer_found', 'timestamp', 'asked_by')
+    search_fields = (
+        'question',
+        'asked_by__full_name',
+        'asked_by__user_id',
+    )
 
 
 # --------- UnansweredQuestion з додатковими полями
@@ -57,11 +63,10 @@ class UnansweredQuestionAdmin(admin.ModelAdmin):
     form = UnansweredQuestionAdminForm
     list_display = ('question', 'asked_at', 'proposed_answer')
     search_fields = ('question',)
-    date_hierarchy = "asked_at"                      # зручно навігуватись по датах
+    date_hierarchy = "asked_at"
 
     def save_model(self, request, obj, form, change):
         if obj.question and obj.proposed_answer:
-            # Створюємо QAEntry — embedding порахується всередині save()
             QAEntry.objects.create(
                 question=obj.question,
                 answer=obj.proposed_answer,
@@ -73,8 +78,9 @@ class UnansweredQuestionAdmin(admin.ModelAdmin):
             super().save_model(request, obj, form, change)
 
 
+# --------- AllowedTelegramUser
 @admin.register(AllowedTelegramUser)
-class AllowedTelegramUserAdmin(admin.ModelAdmin):
+class AllowedTelegramUserAdmin(AuditedModelAdmin):
     list_display = ("user_id", "full_name", "status", "created_at")
     list_filter = ("status", "created_at")
     search_fields = ("user_id", "full_name")

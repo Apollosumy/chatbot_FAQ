@@ -141,6 +141,16 @@ class QuestionLog(models.Model):
     similarity = models.FloatField("Схожість", blank=True, null=True)
     timestamp = models.DateTimeField("Час запиту", auto_now_add=True)
 
+    # ⬇️ НОВЕ: хто задав (зв'язок із AllowedTelegramUser)
+    asked_by = models.ForeignKey(
+        AllowedTelegramUser,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        verbose_name="Хто задав",
+        related_name="question_logs",
+        db_index=True,
+    )
+
     class Meta:
         verbose_name = "Запит користувача"
         verbose_name_plural = "Запити користувачів"
