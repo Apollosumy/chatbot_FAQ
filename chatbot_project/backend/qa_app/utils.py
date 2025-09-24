@@ -7,6 +7,7 @@ from pgvector.django import CosineDistance
 
 from qa_app.models import QAEntry, QAVariant
 from qa_app.services.embeddings import embed_text_async
+from qa_app.text_utils import normalize_text
 
 TOP_K = getattr(settings, "SEARCH_TOP_K", 5)
 SIM_THRESHOLD = getattr(settings, "SEARCH_SIM_THRESHOLD", 0.35)
@@ -38,8 +39,12 @@ async def find_best_match(question: str) -> Tuple[Optional[QAEntry], Optional[fl
     """
     Отримуємо embedding запиту та шукаємо найближчий варіант.
     Фільтр по порогу SIM_THRESHOLD.
+
+    Важливо: перед побудовою ембедінга нормалізуємо текст (lowercase, видалення зайвої пунктуації),
+    щоб пошук був нечутливий до регістру та простих варіацій написання.
     """
-    q_vec = await embed_text_async(question)
+    norm_q = normalize_text(question)
+    q_vec = await embed_text_async(norm_q)
     if not q_vec:
         return None, None
 
