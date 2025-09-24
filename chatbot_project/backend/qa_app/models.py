@@ -4,6 +4,7 @@ from django.db import models, transaction
 from django.conf import settings
 from pgvector.django import VectorField
 from qa_app.services.embeddings import embed_text_sync
+from qa_app.text_utils import normalize_text
 
 
 class Category(models.Model):
@@ -60,18 +61,21 @@ class QAEntry(models.Model):
         1) Зберігаємо сам QAEntry.
         2) Перегенеровуємо варіанти (питання + синоніми) у таблиці QAVariant з ОКРЕМИМИ embedding.
         3) Поле embedding у QAEntry оновлюємо embedding-ом головного питання (можна прибрати згодом).
+        Нормалізація тексту виконується перед побудовою ембедінга, щоб пошук був нечутливим до регістру / пунктуації.
         """
         super().save(*args, **kwargs)
 
         # 3. QAEntry.embedding = embedding головного питання (для сумісності)
         q = (self.question or "").strip()
-        self.embedding = embed_text_sync(q) if q else None
+        norm_q = normalize_text(q)
+        self.embedding = embed_text_sync(norm_q) if q else None
         super().save(update_fields=["embedding"])
 
         # 2. повністю перебудовуємо QAVariant
         QAVariant.objects.filter(entry=self).delete()
         for text in self.get_variants_list():
-            vec = embed_text_sync(text)
+            norm_text = normalize_text(text)
+            vec = embed_text_sync(norm_text)
             QAVariant.objects.create(entry=self, text=text, embedding=vec)
 
 
