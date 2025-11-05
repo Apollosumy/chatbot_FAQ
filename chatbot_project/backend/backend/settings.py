@@ -25,11 +25,13 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'pgvector.django',
+    'rest_framework',
 
     'qa_app',
     'instructions_app',
     'feedback_app',
     'audittrail',
+    'upsell_app',
 ]
 
 # --- Middleware ---

@@ -53,18 +53,17 @@ class HMACAuthMiddleware:
         if abs(now - ts_int) > self.ttl:
             return _bad("stale timestamp/replay")
 
-        # 3) Обчислюємо реальний hash body
-        body_bytes = request.body  # Django кешує, безпечно читати
+        # 3) Реальний hash body
+        body_bytes = request.body
         body_sha256 = hashlib.sha256(body_bytes).hexdigest()
 
-        # якщо клієнт надіслав X-Content-SHA256 — звіримося
+        # Якщо клієнт надіслав X-Content-SHA256 — звіримося
         content_hdr = request.headers.get("X-Content-SHA256")
         if content_hdr and content_hdr != body_sha256:
             return _bad("mismatched body hash")
 
         method = request.method.upper()
-        # ВАЖЛИВО: підписуємо full_path (шлях + query), а не лише шлях
-        full_path = request.get_full_path()
+        full_path = request.get_full_path()  # шлях + query
 
         to_sign = "\n".join([ts, method, full_path, body_sha256]).encode("utf-8")
         expected = hmac.new(
@@ -74,12 +73,10 @@ class HMACAuthMiddleware:
         ).hexdigest()
 
         sig = request.headers.get("X-Signature", "")
-        # приймаємо як "v1=<hex>", так і чистий hex
         if sig.startswith("v1="):
             sig = sig[3:]
 
         if not hmac.compare_digest(expected, sig):
             return _bad("bad signature")
 
-        # все гаразд
         return self.get_response(request)

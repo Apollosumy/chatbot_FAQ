@@ -1,3 +1,4 @@
+# qa_app/models.py
 from __future__ import annotations
 
 from django.db import models, transaction
@@ -127,6 +128,17 @@ class AllowedTelegramUser(models.Model):
         default=Status.ACTIVE,
         db_index=True,
     )
+
+    # --- нові поля для організаційної інформації ---
+    subdivision = models.CharField(
+        "Підрозділ", max_length=200, blank=True, null=True,
+        help_text="Підрозділ користувача (наприклад: підрозділ/відділення)."
+    )
+    department = models.CharField(
+        "Відділ", max_length=200, blank=True, null=True,
+        help_text="Відділ користувача (наприклад: 'Маркетинг')."
+    )
+
     created_at = models.DateTimeField("Додано", auto_now_add=True)
 
     class Meta:
