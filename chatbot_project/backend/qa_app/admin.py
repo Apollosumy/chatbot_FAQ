@@ -1,3 +1,4 @@
+# qa_app/admin.py
 from __future__ import annotations
 from django.contrib import admin
 from django import forms
@@ -186,9 +187,9 @@ class UnansweredQuestionAdmin(AuditedModelAdmin):
 # --------- AllowedTelegramUser
 @admin.register(AllowedTelegramUser)
 class AllowedTelegramUserAdmin(AuditedModelAdmin):
-    list_display = ("user_id", "full_name", "status", "created_at")
-    list_filter = ("status", "created_at")
-    search_fields = ("user_id", "full_name")
+    list_display = ("user_id", "full_name", "status", "department", "subdivision", "created_at")
+    list_filter = ("status", "department", "subdivision", "created_at")
+    search_fields = ("user_id", "full_name", "department", "subdivision")
     date_hierarchy = "created_at"
     ordering = ("-created_at",)
     list_per_page = 25

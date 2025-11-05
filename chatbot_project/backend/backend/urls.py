@@ -51,6 +51,7 @@ urlpatterns = [
     path("api/", include("qa_app.urls")),
     path("api/", include("instructions_app.urls")),
     path("api/", include("feedback_app.urls")),
+    path("api/upsell/", include("upsell_app.urls")),
     path("", RedirectView.as_view(url="/super-admin-42/", permanent=False)),
 ]
 
