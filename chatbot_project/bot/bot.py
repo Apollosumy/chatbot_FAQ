@@ -21,7 +21,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     CallbackQuery,
 )
-    # no change to imports below
+# no change to imports below
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -29,7 +29,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 logging.basicConfig(level=logging.INFO)
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
-
 
 # Читаємо .env із кореня репозиторію
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -92,6 +91,7 @@ def api_get(path: str, params: dict | None = None, *, user_id: int | None = None
         "X-Signature": signature,
         "X-Content-SHA256": content_hash,
     }
+    # params вже всунули в full_path, тому тут params=None
     return requests.get(url, headers=headers, params=None, timeout=timeout)
 
 
@@ -121,8 +121,31 @@ QA_BTN_ASK = "🔍 Задати питання"
 QA_BTN_FIND = "🔎 Знайти інструкцію"
 QA_BTN_GET = "📄 Отримати інструкцію"
 ASK_GUIDE = "📘 Як формулювати запитання"
-ASK_GUIDE_TEXT = """<b>Як правильно ставити запитання чат-боту</b>
-... (без змін текст підказки) ...
+ASK_GUIDE_TEXT = """
+<b>Як правильно ставити запитання чат-боту</b>
+
+Щоб отримати найточнішу і найкориснішу відповідь, формулюй запитання <b>загально</b>, а не під конкретну ситуацію. 
+Бот шукає відповіді у базі знань, яка містить правила, процеси та політики компанії.
+
+<b>✅ Приклади правильних запитань</b>
+• Яка максимальна сума можлива при оплаті готівкою кур’єру?
+• Як оформити повернення товару?
+• Як змінити адресу доставки після оформлення замовлення?
+• Як отримати рахунок-фактуру для юридичної особи?
+• Що робити, якщо клієнт не отримав SMS з підтвердженням?
+
+<b>🚫 Чого уникати</b>
+Уникай надто конкретних питань з персональними даними або номерами замовлень:
+• <u>Неправильно:</u> "Чи можна оплатити готівкою нашому кур’єру по Києву при сумі 59997 грн?"
+• <u>Правильно:</u> "Яка максимальна сума для оплати готівкою кур’єру?"
+
+<b>💡 Поради</b>
+• Формулюй запитання з початком: "Як...", "Що робити якщо...", "Які правила...".
+• Не додавай імен клієнтів, номери замовлень, точні суми чи дати.
+• Якщо бот не знайшов відповідь — спробуй переформулювати запитання загальніше.
+
+<b>Мета:</b> бот допомагає швидко отримати інформацію про бізнес-процеси та політики компанії, 
+а не переглядати індивідуальні замовлення.
 """
 
 # Підменю Допродаж
@@ -174,6 +197,7 @@ class SearchMode(StatesGroup):
     search_answer = State()
     feedback = State()
     change_wait = State()  # ← новий стан
+    browse_instructions = State()  # перегляд дерева інструкцій (QA_BTN_GET)
 
 
 # ---------- Доступ (whitelist) ----------
@@ -183,12 +207,12 @@ async def _has_access(user_id: int) -> bool:
     """
     try:
         r = api_get("/api/ping/" if not API_PREFIX else "/ping/", user_id=user_id)
-        # NB: якщо твій API вже включає префікс /api у DJANGO_API_URL, лишай "/ping/"
         logging.info("[ACCESS] uid=%s status=%s body=%s", user_id, r.status_code, r.text[:200])
         return r.status_code == 200
-    except Exception as e:
+    except Exception:
         logging.exception("[ACCESS] exception uid=%s", user_id)
         return False
+
 
 async def _guard_access(message: Message) -> bool:
     if not await _has_access(message.from_user.id):
@@ -203,7 +227,6 @@ async def _guard_access_cb(callback: CallbackQuery) -> bool:
         await callback.answer()
         return False
     return True
-
 
 
 # ---------- /start ----------
@@ -259,27 +282,182 @@ async def start_instruction_search(message: Message, state: FSMContext):
     await message.answer("🔎 Введіть ключове слово для пошуку інструкції:")
 
 
+# ====== НОВА ЛОГІКА: дерево інструкцій з кнопкою «Назад» ======
+
+def _build_instruction_keyboard(
+    categories: list[dict],
+    instructions: list[dict],
+    can_go_back: bool,
+) -> InlineKeyboardMarkup:
+    buttons: list[list[InlineKeyboardButton]] = []
+
+    for c in categories:
+        buttons.append([
+            InlineKeyboardButton(
+                text=c["name"],
+                callback_data=f"insnav_node:{c['id']}",
+            )
+        ])
+
+    for instr in instructions:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"📄 {instr['title']}",
+                callback_data=f"insnav_open:{instr['id']}",
+            )
+        ])
+
+    if can_go_back:
+        buttons.append([
+            InlineKeyboardButton(
+                text="⬅️ Повернутись назад",
+                callback_data="insnav_back",
+            )
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def _show_instruction_level(
+    target: Message | CallbackQuery,
+    state: FSMContext,
+    node_id: int | None,
+):
+    """
+    node_id = None → кореневий рівень (категорії)
+    node_id = id вузла → підкатегорії + інструкції
+    """
+    user_id = target.from_user.id
+    data = await state.get_data()
+    path: list[int] = data.get("instr_path", [])
+
+    target_msg: Message = target if isinstance(target, Message) else target.message
+
+    try:
+        if node_id is None:
+            # кореневий рівень
+            path = []
+            await state.update_data(instr_path=path)
+
+            r = api_get("/categories/", user_id=user_id)
+            if r.status_code in (401, 403):
+                await target_msg.answer("🚫 Доступ заборонено. Переконайтеся, що ваш Telegram ID додано в білий список.")
+                if isinstance(target, CallbackQuery):
+                    await target.answer()
+                return
+            r.raise_for_status()
+            categories = r.json()
+            instructions: list[dict] = []
+            text = "📂 Оберіть категорію:"
+            can_go_back = False
+        else:
+            # перехід у вузол дерева
+            if not path or path[-1] != node_id:
+                path.append(node_id)
+                await state.update_data(instr_path=path)
+
+            r_sub = api_get(f"/subcategories/{node_id}/", user_id=user_id)
+            r_instr = api_get(f"/instructions/{node_id}/", user_id=user_id)
+
+            for resp in (r_sub, r_instr):
+                if resp.status_code in (401, 403):
+                    await target_msg.answer("🚫 Доступ заборонено.")
+                    if isinstance(target, CallbackQuery):
+                        await target.answer()
+                    return
+                resp.raise_for_status()
+
+            categories = r_sub.json()
+            instructions = r_instr.json()
+            text = "📁 Оберіть підкатегорію або інструкцію:"
+            can_go_back = True
+
+        kb = _build_instruction_keyboard(categories, instructions, can_go_back=can_go_back)
+
+        if isinstance(target, CallbackQuery):
+            await target.message.edit_text(text, reply_markup=kb)
+            await target.answer()
+        else:
+            await target.answer(text, reply_markup=kb)
+
+    except Exception as e:
+        await target_msg.answer(f"⚠️ Помилка при завантаженні інструкцій: {str(e)}")
+        if isinstance(target, CallbackQuery):
+            await target.answer()
+
+
 @dp.message(F.text == QA_BTN_GET)
 async def get_instruction_entry(message: Message, state: FSMContext):
+    """
+    Вхід у режим перегляду дерева інструкцій.
+    Все відбувається в одному повідомленні з inline-клавіатурою та кнопкою «Назад».
+    """
     if not await _guard_access(message):
         return
-    await state.set_state(SearchMode.idle)
+    await state.set_state(SearchMode.browse_instructions)
+    await state.update_data(instr_path=[])
+    await _show_instruction_level(message, state, node_id=None)
+
+
+@dp.callback_query(SearchMode.browse_instructions, F.data.startswith("insnav_node:"))
+async def instruction_node_selected(callback: CallbackQuery, state: FSMContext):
+    if not await _guard_access_cb(callback):
+        return
+    node_id = int(callback.data.split(":", 1)[1])
+    await _show_instruction_level(callback, state, node_id=node_id)
+
+
+@dp.callback_query(SearchMode.browse_instructions, F.data == "insnav_back")
+async def instruction_nav_back(callback: CallbackQuery, state: FSMContext):
+    if not await _guard_access_cb(callback):
+        return
+    data = await state.get_data()
+    path: list[int] = data.get("instr_path", [])
+
+    if not path:
+        # На всяк випадок: якщо шляху немає — показуємо корінь
+        await _show_instruction_level(callback, state, node_id=None)
+        return
+
+    path.pop()
+    await state.update_data(instr_path=path)
+
+    if not path:
+        # повертаємось до кореня (категорії)
+        await _show_instruction_level(callback, state, node_id=None)
+    else:
+        # показуємо попередній вузол
+        prev_id = path[-1]
+        await _show_instruction_level(callback, state, node_id=prev_id)
+
+
+@dp.callback_query(SearchMode.browse_instructions, F.data.startswith("insnav_open:"))
+async def instruction_nav_open(callback: CallbackQuery, state: FSMContext):
+    """
+    Відкрити інструкцію з дерева.
+    Навігаційне повідомлення залишається, інструкція приходить окремим повідомленням.
+    """
+    if not await _guard_access_cb(callback):
+        return
+    instr_id = int(callback.data.split(":", 1)[1])
     try:
-        r = api_get("/categories/", user_id=message.from_user.id)
+        r = api_get(f"/instruction/{instr_id}/", user_id=callback.from_user.id)
         if r.status_code in (401, 403):
-            await message.answer("🚫 Доступ заборонено. Переконайтеся, що ваш Telegram ID додано в білий список.")
+            await callback.message.answer("🚫 Доступ заборонено.")
+            await callback.answer()
             return
-        r.raise_for_status()
-        categories = r.json()
-        if not categories:
-            await message.answer("Категорії ще не додано.")
-            return
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text=c["name"], callback_data=f"cat_{c['id']}")] for c in categories]
-        )
-        await message.answer("📂 Оберіть категорію:", reply_markup=kb)
+        if r.status_code == 200:
+            data = r.json()
+            text = f"<b>{data['title']}</b>\n\n{data['content']}"
+            if data.get("image_url"):
+                await callback.message.answer_photo(photo=data["image_url"], caption=text, parse_mode="HTML")
+            else:
+                await callback.message.answer(text, parse_mode="HTML")
+        else:
+            await callback.message.answer("Інструкція не знайдена.")
     except Exception as e:
-        await message.answer(f"⚠️ Помилка при отриманні категорій: {str(e)}")
+        await callback.message.answer(f"⚠️ Помилка при завантаженні інструкції: {str(e)}")
+    await callback.answer()
 
 
 @dp.message(F.text == ASK_GUIDE)
@@ -338,61 +516,44 @@ async def handle_feedback(message: Message, state: FSMContext):
     await state.set_state(SearchMode.idle)
 
 
-# ---------- Підкатегорії та інструкції ----------
-@dp.callback_query(F.data.startswith("cat_"))
-async def category_selected(callback: CallbackQuery):
-    if not await _guard_access_cb(callback):
-        return
-    category_id = callback.data.split("_", 1)[1]
-    try:
-        r = api_get(f"/subcategories/{category_id}/", user_id=callback.from_user.id)
-        if r.status_code in (401, 403):
-            await callback.message.answer("🚫 Доступ заборонено.")
-            await callback.answer()
-            return
-        r.raise_for_status()
-        subs = r.json()
-        if not subs:
-            await callback.message.answer("Немає підкатегорій для цієї категорії.")
-            await callback.answer()
-            return
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text=s["name"], callback_data=f"sub_{s['id']}")] for s in subs]
-        )
-        await callback.message.answer("📁 Оберіть підкатегорію:", reply_markup=kb)
-    except Exception as e:
-        await callback.message.answer(f"⚠️ Помилка при завантаженні підкатегорій: {str(e)}")
-    await callback.answer()
+# ---------- Пошук ----------
 
-
-@dp.callback_query(F.data.startswith("sub_"))
-async def subcategory_selected(callback: CallbackQuery):
-    if not await _guard_access_cb(callback):
+@dp.message(SearchMode.search_instruction)
+async def process_instruction_query(message: Message, state: FSMContext):
+    if not await _guard_access(message):
         return
-    sub_id = callback.data.split("_", 1)[1]
+    query = (message.text or "").strip()
+    if not query:
+        await message.answer("Введіть ключове слово для пошуку інструкції.")
+        return
     try:
-        r = api_get(f"/instructions/{sub_id}/", user_id=callback.from_user.id)
+        r = api_get("/search_instructions/", params={"query": query}, user_id=message.from_user.id)
         if r.status_code in (401, 403):
-            await callback.message.answer("🚫 Доступ заборонено.")
-            await callback.answer()
+            await message.answer("🚫 Доступ заборонено.")
             return
-        r.raise_for_status()
-        instrs = r.json()
-        if not instrs:
-            await callback.message.answer("Немає інструкцій у цій підкатегорії.")
-            await callback.answer()
-            return
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text=i["title"], callback_data=f"instr_{i['id']}")] for i in instrs]
-        )
-        await callback.message.answer("📜 Оберіть інструкцію:", reply_markup=kb)
+        if r.status_code == 200:
+            instrs = r.json()
+            if instrs:
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text=i["title"], callback_data=f"instr_{i['id']}")]
+                        for i in instrs
+                    ]
+                )
+                await message.answer("🔽 Оберіть інструкцію:", reply_markup=kb)
+            else:
+                await message.answer("Інструкцій за вашим запитом не знайдено.")
+        else:
+            await message.answer(f"⚠️ Помилка при пошуку інструкцій: {r.status_code}")
     except Exception as e:
-        await callback.message.answer(f"⚠️ Помилка при завантаженні інструкцій: {str(e)}")
-    await callback.answer()
+        await message.answer(f"⚠️ Помилка: {str(e)}")
 
 
 @dp.callback_query(F.data.startswith("instr_"))
 async def instruction_selected(callback: CallbackQuery):
+    """
+    Показ інструкції з результатів пошуку (🔎 Знайти інструкцію).
+    """
     if not await _guard_access_cb(callback):
         return
     instr_id = callback.data.split("_", 1)[1]
@@ -414,35 +575,6 @@ async def instruction_selected(callback: CallbackQuery):
     except Exception as e:
         await callback.message.answer(f"⚠️ Помилка при завантаженні інструкції: {str(e)}")
     await callback.answer()
-
-
-# ---------- Пошук ----------
-@dp.message(SearchMode.search_instruction)
-async def process_instruction_query(message: Message, state: FSMContext):
-    if not await _guard_access(message):
-        return
-    query = (message.text or "").strip()
-    if not query:
-        await message.answer("Введіть ключове слово для пошуку інструкції.")
-        return
-    try:
-        r = api_get("/search_instructions/", params={"query": query}, user_id=message.from_user.id)
-        if r.status_code in (401, 403):
-            await message.answer("🚫 Доступ заборонено.")
-            return
-        if r.status_code == 200:
-            instrs = r.json()
-            if instrs:
-                kb = InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text=i["title"], callback_data=f"instr_{i['id']}")] for i in instrs]
-                )
-                await message.answer("🔽 Оберіть інструкцію:", reply_markup=kb)
-            else:
-                await message.answer("Інструкцій за вашим запитом не знайдено.")
-        else:
-            await message.answer(f"⚠️ Помилка при пошуку інструкцій: {r.status_code}")
-    except Exception as e:
-        await message.answer(f"⚠️ Помилка: {str(e)}")
 
 
 @dp.message(SearchMode.search_answer)
@@ -592,10 +724,12 @@ async def upsell_accessories_category_text(callback: CallbackQuery):
         r = api_get(f"/upsell/accessories/category/{cat_id}/text/", user_id=callback.from_user.id)
         if r.status_code in (401, 403):
             await callback.message.answer("🚫 Доступ заборонено.")
-            await callback.answer(); return
+            await callback.answer()
+            return
         if r.status_code == 404:
             await callback.message.answer("Категорію не знайдено.")
-            await callback.answer(); return
+            await callback.answer()
+            return
         r.raise_for_status()
         data = r.json()
         name = data.get("name") or "Категорія"
